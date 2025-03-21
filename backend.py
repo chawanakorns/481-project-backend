@@ -5,6 +5,7 @@ from flask_cors import CORS
 import bcrypt
 import os
 import re
+import pickle
 
 app = Flask(__name__)
 CORS(app)
@@ -12,19 +13,21 @@ CORS(app)
 BASE_DIR = os.path.abspath("../481-project-database")
 USERS_DB = os.path.join(BASE_DIR, 'users.db')
 FOOD_DB = os.path.join(BASE_DIR, 'food.db')
+PREPROCESSED_RECIPES_FILE = "../481-project-database/preprocessed_recipes.pkl"  # Adjust path if needed
 
+# Load preprocessed recipes at startup
+with open(PREPROCESSED_RECIPES_FILE, "rb") as f:
+    PREPROCESSED_RECIPES = pickle.load(f)
 
 def get_user_db_connection():
     conn = sqlite3.connect(USERS_DB, timeout=10)
     conn.row_factory = sqlite3.Row
     return conn
 
-
 def get_food_db_connection():
     conn = sqlite3.connect(FOOD_DB, timeout=10)
     conn.row_factory = sqlite3.Row
     return conn
-
 
 class User:
     @staticmethod
@@ -49,7 +52,6 @@ class User:
         finally:
             conn.close()
 
-
 @app.route('/register', methods=['POST'])
 def register():
     data = request.get_json()
@@ -61,7 +63,6 @@ def register():
     User.create_user(username, password)
     return jsonify({"message": "User registered successfully"}), 201
 
-
 @app.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
@@ -72,12 +73,10 @@ def login():
         return jsonify({"message": "Invalid credentials"}), 401
     return jsonify({"message": "Login successful", "user_id": user['id']}), 200
 
-
 def parse_image_urls(image_string):
     pattern = r'"(https?://[^"]+)"'
     matches = re.findall(pattern, image_string)
     return matches if matches else []
-
 
 # Folder Management Endpoints
 @app.route('/folders', methods=['POST'])
@@ -105,7 +104,6 @@ def create_folder():
         print("Closing database connection")
         conn.close()
 
-
 @app.route('/folders', methods=['GET'])
 def get_folders():
     user_id = request.args.get('user_id', type=int)
@@ -117,7 +115,6 @@ def get_folders():
         return jsonify([dict(folder) for folder in folders])
     finally:
         conn.close()
-
 
 @app.route('/folders/<int:folder_id>', methods=['PUT'])
 def update_folder(folder_id):
@@ -136,7 +133,6 @@ def update_folder(folder_id):
     finally:
         conn.close()
 
-
 @app.route('/folders/<int:folder_id>', methods=['DELETE'])
 def delete_folder(folder_id):
     conn = get_food_db_connection()
@@ -150,7 +146,6 @@ def delete_folder(folder_id):
         return jsonify({"message": "Folder and its bookmarks deleted"}), 200
     finally:
         conn.close()
-
 
 # Bookmark Endpoints
 @app.route('/bookmarks', methods=['POST'])
@@ -175,7 +170,6 @@ def add_bookmark():
     finally:
         conn.close()
 
-
 @app.route('/bookmarks/<int:folder_id>', methods=['GET'])
 def get_bookmarks(folder_id):
     conn = get_food_db_connection()
@@ -191,16 +185,13 @@ def get_bookmarks(folder_id):
         bookmarks_list = []
         for bookmark in bookmarks:
             bookmark_dict = dict(bookmark)
-            if bookmark_dict['Images'] and bookmark_dict['Images'].startswith('c('):
-                image_urls = parse_image_urls(bookmark_dict['Images'])
-                bookmark_dict['image_url'] = image_urls[0] if image_urls else ''
-            else:
-                bookmark_dict['image_url'] = bookmark_dict['Images'] if bookmark_dict['Images'] else ''
+            # Use preprocessed Images from pickle instead of parsing here
+            recipe = PREPROCESSED_RECIPES.get(bookmark_dict['RecipeId'], {})
+            bookmark_dict['image_url'] = recipe.get('image_url', '')
             bookmarks_list.append(bookmark_dict)
         return jsonify(bookmarks_list)
     finally:
         conn.close()
-
 
 @app.route('/bookmarks/all', methods=['GET'])
 def get_all_bookmarks():
@@ -210,7 +201,6 @@ def get_all_bookmarks():
     conn = get_food_db_connection()
     cursor = conn.cursor()
     try:
-        # Fetch folders with average ratings
         cursor.execute("""
             SELECT f.FolderId, f.Name, AVG(b.Rating) as AvgRating
             FROM folders f
@@ -221,7 +211,6 @@ def get_all_bookmarks():
         """, (user_id,))
         folders = cursor.fetchall()
 
-        # Fetch all bookmarks
         cursor.execute("""
             SELECT b.*, r.Name, r.Images
             FROM bookmarks b
@@ -230,21 +219,16 @@ def get_all_bookmarks():
         """, (user_id,))
         bookmarks = cursor.fetchall()
 
-        # Process bookmarks
         bookmarks_by_folder = {}
         for bookmark in bookmarks:
             bookmark_dict = dict(bookmark)
-            if bookmark_dict['Images'] and bookmark_dict['Images'].startswith('c('):
-                image_urls = parse_image_urls(bookmark_dict['Images'])
-                bookmark_dict['image_url'] = image_urls[0] if image_urls else ''
-            else:
-                bookmark_dict['image_url'] = bookmark_dict['Images'] if bookmark_dict['Images'] else ''
+            recipe = PREPROCESSED_RECIPES.get(bookmark_dict['RecipeId'], {})
+            bookmark_dict['image_url'] = recipe.get('image_url', '')
             folder_id = bookmark_dict['FolderId']
             if folder_id not in bookmarks_by_folder:
                 bookmarks_by_folder[folder_id] = []
             bookmarks_by_folder[folder_id].append(bookmark_dict)
 
-        # Combine folder info with bookmarks
         result = {
             'folders': [dict(folder) for folder in folders],
             'bookmarks': bookmarks_by_folder
@@ -252,7 +236,6 @@ def get_all_bookmarks():
         return jsonify(result)
     finally:
         conn.close()
-
 
 @app.route('/bookmarks/<int:bookmark_id>', methods=['PUT'])
 def update_bookmark(bookmark_id):
@@ -271,7 +254,6 @@ def update_bookmark(bookmark_id):
     finally:
         conn.close()
 
-
 @app.route('/bookmarks/<int:bookmark_id>/rating', methods=['PUT'])
 def update_bookmark_rating(bookmark_id):
     data = request.get_json()
@@ -289,7 +271,6 @@ def update_bookmark_rating(bookmark_id):
     finally:
         conn.close()
 
-
 @app.route('/bookmarks/<int:bookmark_id>', methods=['DELETE'])
 def delete_bookmark(bookmark_id):
     conn = get_food_db_connection()
@@ -303,58 +284,24 @@ def delete_bookmark(bookmark_id):
     finally:
         conn.close()
 
-
 @app.route('/recipes', methods=['GET'])
 def get_recipes():
     limit = request.args.get('limit', default=2000, type=int)
-    conn = get_food_db_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute("SELECT * FROM recipes LIMIT ?", (limit,))
-        recipes = cursor.fetchall()
-        if not recipes:
-            return jsonify({"message": "No recipes found"}), 404
-        recipes_list = []
-        for row in recipes:
-            recipe = dict(row)
-            if recipe['Images'] and recipe['Images'].startswith('c('):
-                image_urls = parse_image_urls(recipe['Images'])
-                recipe['image_url'] = image_urls[0] if image_urls else ''
-                recipe['all_image_urls'] = image_urls
-            else:
-                recipe['image_url'] = recipe['Images']
-                recipe['all_image_urls'] = [recipe['Images']] if recipe['Images'] else []
-            recipes_list.append(recipe)
-        print(f"Returning {len(recipes_list)} recipes from /recipes")
-        return jsonify(recipes_list)
-    finally:
-        conn.close()
-
+    recipes_list = list(PREPROCESSED_RECIPES.values())[:limit]
+    if not recipes_list:
+        return jsonify({"message": "No recipes found"}), 404
+    print(f"Returning {len(recipes_list)} recipes from /recipes")
+    return jsonify(recipes_list)
 
 @app.route('/recipes/<int:recipe_id>', methods=['GET'])
 def get_recipe(recipe_id):
     print(f"Request received for /recipes/{recipe_id}")
-    conn = get_food_db_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute("SELECT * FROM recipes WHERE RecipeId = ?", (recipe_id,))
-        recipe = cursor.fetchone()
-        if not recipe:
-            print(f"No recipe found for ID {recipe_id}")
-            return jsonify({"message": "Recipe not found"}), 404
-        recipe_dict = dict(recipe)
-        if recipe_dict['Images'] and recipe_dict['Images'].startswith('c('):
-            image_urls = parse_image_urls(recipe_dict['Images'])
-            recipe_dict['image_url'] = image_urls[0] if image_urls else ''
-            recipe_dict['all_image_urls'] = image_urls
-        else:
-            recipe_dict['image_url'] = recipe_dict['Images']
-            recipe_dict['all_image_urls'] = [recipe_dict['Images']] if recipe_dict['Images'] else []
-        print(f"Returning recipe: {recipe_dict['Name']}")
-        return jsonify(recipe_dict)
-    finally:
-        conn.close()
-
+    recipe = PREPROCESSED_RECIPES.get(recipe_id)
+    if not recipe:
+        print(f"No recipe found for ID {recipe_id}")
+        return jsonify({"message": "Recipe not found"}), 404
+    print(f"Returning recipe: {recipe['Name']}")
+    return jsonify(recipe)
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000, threaded=False)
