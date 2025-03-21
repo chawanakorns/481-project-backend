@@ -189,6 +189,37 @@ def get_bookmarks(folder_id):
     finally:
         conn.close()
 
+@app.route('/bookmarks/all', methods=['GET'])
+def get_all_bookmarks():
+    user_id = request.args.get('user_id', type=int)
+    if not user_id:
+        return jsonify({"message": "User ID is required"}), 400
+    conn = get_food_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT b.*, r.Name, r.Images
+            FROM bookmarks b
+            JOIN recipes r ON b.RecipeId = r.RecipeId
+            WHERE b.UserId = ?
+        """, (user_id,))
+        bookmarks = cursor.fetchall()
+        bookmarks_by_folder = {}
+        for bookmark in bookmarks:
+            bookmark_dict = dict(bookmark)
+            if bookmark_dict['Images'] and bookmark_dict['Images'].startswith('c('):
+                image_urls = parse_image_urls(bookmark_dict['Images'])
+                bookmark_dict['image_url'] = image_urls[0] if image_urls else ''
+            else:
+                bookmark_dict['image_url'] = bookmark_dict['Images'] if bookmark_dict['Images'] else ''
+            folder_id = bookmark_dict['FolderId']
+            if folder_id not in bookmarks_by_folder:
+                bookmarks_by_folder[folder_id] = []
+            bookmarks_by_folder[folder_id].append(bookmark_dict)
+        return jsonify(bookmarks_by_folder)
+    finally:
+        conn.close()
+
 @app.route('/bookmarks/<int:bookmark_id>', methods=['PUT'])
 def update_bookmark(bookmark_id):
     data = request.get_json()
