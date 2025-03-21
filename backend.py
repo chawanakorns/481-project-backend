@@ -13,15 +13,18 @@ BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 USERS_DB = os.path.join(BASE_DIR, 'database', 'users.db')
 FOOD_DB = os.path.join(BASE_DIR, 'database', 'food.db')
 
+
 def get_user_db_connection():
     conn = sqlite3.connect(USERS_DB, timeout=10)
     conn.row_factory = sqlite3.Row
     return conn
 
+
 def get_food_db_connection():
     conn = sqlite3.connect(FOOD_DB, timeout=10)
     conn.row_factory = sqlite3.Row
     return conn
+
 
 class User:
     @staticmethod
@@ -46,6 +49,7 @@ class User:
         finally:
             conn.close()
 
+
 @app.route('/register', methods=['POST'])
 def register():
     data = request.get_json()
@@ -57,6 +61,7 @@ def register():
     User.create_user(username, password)
     return jsonify({"message": "User registered successfully"}), 201
 
+
 @app.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
@@ -67,10 +72,12 @@ def login():
         return jsonify({"message": "Invalid credentials"}), 401
     return jsonify({"message": "Login successful", "user_id": user['id']}), 200
 
+
 def parse_image_urls(image_string):
     pattern = r'"(https?://[^"]+)"'
     matches = re.findall(pattern, image_string)
     return matches if matches else []
+
 
 # Folder Management Endpoints
 @app.route('/folders', methods=['POST'])
@@ -98,6 +105,7 @@ def create_folder():
         print("Closing database connection")
         conn.close()
 
+
 @app.route('/folders', methods=['GET'])
 def get_folders():
     user_id = request.args.get('user_id', type=int)
@@ -109,6 +117,7 @@ def get_folders():
         return jsonify([dict(folder) for folder in folders])
     finally:
         conn.close()
+
 
 @app.route('/folders/<int:folder_id>', methods=['PUT'])
 def update_folder(folder_id):
@@ -127,6 +136,7 @@ def update_folder(folder_id):
     finally:
         conn.close()
 
+
 @app.route('/folders/<int:folder_id>', methods=['DELETE'])
 def delete_folder(folder_id):
     conn = get_food_db_connection()
@@ -140,6 +150,7 @@ def delete_folder(folder_id):
         return jsonify({"message": "Folder and its bookmarks deleted"}), 200
     finally:
         conn.close()
+
 
 # Bookmark Endpoints
 @app.route('/bookmarks', methods=['POST'])
@@ -163,6 +174,7 @@ def add_bookmark():
         return jsonify({"message": "Bookmark added"}), 201
     finally:
         conn.close()
+
 
 @app.route('/bookmarks/<int:folder_id>', methods=['GET'])
 def get_bookmarks(folder_id):
@@ -189,6 +201,7 @@ def get_bookmarks(folder_id):
     finally:
         conn.close()
 
+
 @app.route('/bookmarks/all', methods=['GET'])
 def get_all_bookmarks():
     user_id = request.args.get('user_id', type=int)
@@ -197,6 +210,18 @@ def get_all_bookmarks():
     conn = get_food_db_connection()
     cursor = conn.cursor()
     try:
+        # Fetch folders with average ratings
+        cursor.execute("""
+            SELECT f.FolderId, f.Name, AVG(b.Rating) as AvgRating
+            FROM folders f
+            LEFT JOIN bookmarks b ON f.FolderId = b.FolderId
+            WHERE f.UserId = ?
+            GROUP BY f.FolderId, f.Name
+            ORDER BY AvgRating DESC
+        """, (user_id,))
+        folders = cursor.fetchall()
+
+        # Fetch all bookmarks
         cursor.execute("""
             SELECT b.*, r.Name, r.Images
             FROM bookmarks b
@@ -204,6 +229,8 @@ def get_all_bookmarks():
             WHERE b.UserId = ?
         """, (user_id,))
         bookmarks = cursor.fetchall()
+
+        # Process bookmarks
         bookmarks_by_folder = {}
         for bookmark in bookmarks:
             bookmark_dict = dict(bookmark)
@@ -216,9 +243,16 @@ def get_all_bookmarks():
             if folder_id not in bookmarks_by_folder:
                 bookmarks_by_folder[folder_id] = []
             bookmarks_by_folder[folder_id].append(bookmark_dict)
-        return jsonify(bookmarks_by_folder)
+
+        # Combine folder info with bookmarks
+        result = {
+            'folders': [dict(folder) for folder in folders],
+            'bookmarks': bookmarks_by_folder
+        }
+        return jsonify(result)
     finally:
         conn.close()
+
 
 @app.route('/bookmarks/<int:bookmark_id>', methods=['PUT'])
 def update_bookmark(bookmark_id):
@@ -237,6 +271,25 @@ def update_bookmark(bookmark_id):
     finally:
         conn.close()
 
+
+@app.route('/bookmarks/<int:bookmark_id>/rating', methods=['PUT'])
+def update_bookmark_rating(bookmark_id):
+    data = request.get_json()
+    rating = data.get('rating')
+    if rating is None or not (1 <= rating <= 5):
+        return jsonify({"message": "Rating must be between 1 and 5"}), 400
+    conn = get_food_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("UPDATE bookmarks SET Rating = ? WHERE BookmarkId = ?", (rating, bookmark_id))
+        if cursor.rowcount == 0:
+            return jsonify({"message": "Bookmark not found"}), 404
+        conn.commit()
+        return jsonify({"message": "Rating updated"}), 200
+    finally:
+        conn.close()
+
+
 @app.route('/bookmarks/<int:bookmark_id>', methods=['DELETE'])
 def delete_bookmark(bookmark_id):
     conn = get_food_db_connection()
@@ -249,6 +302,7 @@ def delete_bookmark(bookmark_id):
         return jsonify({"message": "Bookmark deleted"}), 200
     finally:
         conn.close()
+
 
 @app.route('/recipes', methods=['GET'])
 def get_recipes():
@@ -276,6 +330,7 @@ def get_recipes():
     finally:
         conn.close()
 
+
 @app.route('/recipes/<int:recipe_id>', methods=['GET'])
 def get_recipe(recipe_id):
     print(f"Request received for /recipes/{recipe_id}")
@@ -299,6 +354,7 @@ def get_recipe(recipe_id):
         return jsonify(recipe_dict)
     finally:
         conn.close()
+
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000, threaded=False)
