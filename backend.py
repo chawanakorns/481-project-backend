@@ -1,3 +1,4 @@
+import random
 import re
 import sqlite3
 from flask import Flask, request, jsonify
@@ -447,6 +448,60 @@ def delete_bookmark(bookmark_id):
             return jsonify({"message": "Bookmark not found"}), 404
         conn.commit()
         return jsonify({"message": "Bookmark deleted"}), 200
+    finally:
+        conn.close()
+
+
+@app.route('/recommendations', methods=['GET'])
+def get_recommendations():
+    user_id = request.args.get('user_id', type=int)
+    limit = request.args.get('limit', default=10, type=int)  # Number of recommendations
+
+    if not user_id:
+        return jsonify({"message": "User ID is required"}), 400
+
+    conn = get_food_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        # Fetch all bookmarks for the user to exclude them
+        cursor.execute("""
+            SELECT b.RecipeId
+            FROM bookmarks b
+            WHERE b.UserId = ?
+        """, (user_id,))
+        bookmarked_recipe_ids = set(row['RecipeId'] for row in cursor.fetchall())
+
+        # Get all recipes, excluding bookmarked ones
+        all_recipes = [
+            {**r, 'image_url': clean_image_url(r.get('image_url', ''))}
+            for r in PREPROCESSED_RECIPES.values()
+            if r['RecipeId'] not in bookmarked_recipe_ids
+        ]
+
+        # If there are fewer recipes than the limit, adjust accordingly
+        available_recipes = len(all_recipes)
+        num_to_recommend = min(limit, available_recipes)
+
+        if num_to_recommend == 0:
+            return jsonify({
+                'recommendations': [],
+                'total_recommendations': 0,
+                'message': 'All available recipes are bookmarked. Try adding more recipes to the database!'
+            })
+
+        # Randomly select recipes from the non-bookmarked pool
+        recommended_recipes = random.sample(all_recipes, num_to_recommend)
+
+        # Shuffle for variety
+        random.shuffle(recommended_recipes)
+
+        response = {
+            'recommendations': recommended_recipes,
+            'total_recommendations': len(recommended_recipes)
+        }
+        return jsonify(response)
+
     finally:
         conn.close()
 
