@@ -13,9 +13,8 @@ CORS(app)
 BASE_DIR = os.path.abspath("../481-project-database")
 USERS_DB = os.path.join(BASE_DIR, 'users.db')
 FOOD_DB = os.path.join(BASE_DIR, 'food.db')
-PREPROCESSED_RECIPES_FILE = "../481-project-database/preprocessed_recipes.pkl"  # Adjust path if needed
+PREPROCESSED_RECIPES_FILE = "../481-project-database/preprocessed_recipes.pkl"
 
-# Load preprocessed recipes at startup
 with open(PREPROCESSED_RECIPES_FILE, "rb") as f:
     PREPROCESSED_RECIPES = pickle.load(f)
 
@@ -77,6 +76,12 @@ def parse_image_urls(image_string):
     pattern = r'"(https?://[^"]+)"'
     matches = re.findall(pattern, image_string)
     return matches if matches else []
+
+def clean_image_url(url):
+    """Remove surrounding quotes from a URL if present."""
+    if url and isinstance(url, str):
+        return url.strip('"')
+    return url
 
 # Folder Management Endpoints
 @app.route('/folders', methods=['POST'])
@@ -185,9 +190,8 @@ def get_bookmarks(folder_id):
         bookmarks_list = []
         for bookmark in bookmarks:
             bookmark_dict = dict(bookmark)
-            # Use preprocessed Images from pickle instead of parsing here
             recipe = PREPROCESSED_RECIPES.get(bookmark_dict['RecipeId'], {})
-            bookmark_dict['image_url'] = recipe.get('image_url', '')
+            bookmark_dict['image_url'] = clean_image_url(recipe.get('image_url', ''))
             bookmarks_list.append(bookmark_dict)
         return jsonify(bookmarks_list)
     finally:
@@ -223,7 +227,7 @@ def get_all_bookmarks():
         for bookmark in bookmarks:
             bookmark_dict = dict(bookmark)
             recipe = PREPROCESSED_RECIPES.get(bookmark_dict['RecipeId'], {})
-            bookmark_dict['image_url'] = recipe.get('image_url', '')
+            bookmark_dict['image_url'] = clean_image_url(recipe.get('image_url', ''))
             folder_id = bookmark_dict['FolderId']
             if folder_id not in bookmarks_by_folder:
                 bookmarks_by_folder[folder_id] = []
@@ -287,7 +291,10 @@ def delete_bookmark(bookmark_id):
 @app.route('/recipes', methods=['GET'])
 def get_recipes():
     limit = request.args.get('limit', default=2000, type=int)
-    recipes_list = list(PREPROCESSED_RECIPES.values())[:limit]
+    recipes_list = [
+        {**recipe, 'image_url': clean_image_url(recipe.get('image_url', ''))}
+        for recipe in list(PREPROCESSED_RECIPES.values())[:limit]
+    ]
     if not recipes_list:
         return jsonify({"message": "No recipes found"}), 404
     print(f"Returning {len(recipes_list)} recipes from /recipes")
@@ -300,6 +307,8 @@ def get_recipe(recipe_id):
     if not recipe:
         print(f"No recipe found for ID {recipe_id}")
         return jsonify({"message": "Recipe not found"}), 404
+    # Clean the image_url before returning
+    recipe = {**recipe, 'image_url': clean_image_url(recipe.get('image_url', ''))}
     print(f"Returning recipe: {recipe['Name']}")
     return jsonify(recipe)
 
