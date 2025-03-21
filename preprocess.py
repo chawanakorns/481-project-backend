@@ -1,10 +1,18 @@
 import sqlite3
 import re
 import pickle
+import nltk
+from nltk import bigrams, word_tokenize
+from collections import Counter
+
+# Ensure NLTK data is downloaded
+nltk.download('punkt', quiet=True)
 
 # Database connection
 FOOD_DB = "../481-project-database/food.db"  # Adjust path as needed
-OUTPUT_PICKLE = "../481-project-database/preprocessed_recipes.pkl"  # Output file
+OUTPUT_PICKLE = "../481-project-database/preprocessed_recipes.pkl"  # Output file for recipes
+WORD_FREQ_FILE = "../481-project-database/word_freq.pkl"  # Output file for unigram frequencies
+BIGRAM_FREQ_FILE = "../481-project-database/bigram_freq.pkl"  # Output file for bigram frequencies
 
 
 def get_db_connection():
@@ -91,22 +99,57 @@ def preprocess_recipe(row):
     return preprocessed
 
 
+# Function to generate unigram and bigram frequencies
+def generate_frequencies(preprocessed_recipes):
+    print("Building recipe-specific corpus for frequency analysis...")
+    corpus_words = []
+    corpus_bigrams = []
+
+    for recipe in preprocessed_recipes.values():
+        name = recipe.get('Name', '').lower()
+        keywords = ' '.join(recipe.get('Keywords', [])) if recipe.get('Keywords') else ''
+        # Tokenize the combined name and keywords
+        tokens = word_tokenize(name + ' ' + keywords)
+        corpus_words.extend(tokens)
+        # Generate bigrams from tokens
+        recipe_bigrams = list(bigrams(tokens))
+        corpus_bigrams.extend(recipe_bigrams)
+
+    # Calculate frequencies
+    word_freq = Counter(corpus_words)
+    bigram_freq = Counter(corpus_bigrams)
+
+    return word_freq, bigram_freq
+
+
 # Main preprocessing function
 def preprocess_recipes():
     conn = get_db_connection()
     cursor = conn.cursor()
 
     try:
+        # Fetch and preprocess recipes
         cursor.execute("SELECT * FROM recipes")
         recipes = cursor.fetchall()
-
         preprocessed_recipes = {row["RecipeId"]: preprocess_recipe(row) for row in recipes}
 
-        # Save to pickle file
+        # Generate unigram and bigram frequencies
+        word_freq, bigram_freq = generate_frequencies(preprocessed_recipes)
+
+        # Save preprocessed recipes to pickle file
         with open(OUTPUT_PICKLE, "wb") as f:
             pickle.dump(preprocessed_recipes, f)
-
         print(f"Preprocessed {len(preprocessed_recipes)} recipes and saved to {OUTPUT_PICKLE}")
+
+        # Save word frequencies
+        with open(WORD_FREQ_FILE, 'wb') as f:
+            pickle.dump(word_freq, f)
+        print(f"Saved unigram frequencies to {WORD_FREQ_FILE}")
+
+        # Save bigram frequencies
+        with open(BIGRAM_FREQ_FILE, 'wb') as f:
+            pickle.dump(bigram_freq, f)
+        print(f"Saved bigram frequencies to {BIGRAM_FREQ_FILE}")
 
     finally:
         conn.close()

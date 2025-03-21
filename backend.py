@@ -6,9 +6,6 @@ import bcrypt
 import os
 import pickle
 from Levenshtein import distance as levenshtein_distance
-from collections import Counter
-import nltk
-from nltk import bigrams, word_tokenize
 
 app = Flask(__name__)
 CORS(app)
@@ -24,21 +21,14 @@ BIGRAM_FREQ_FILE = "../481-project-database/bigram_freq.pkl"
 with open(PREPROCESSED_RECIPES_FILE, "rb") as f:
     PREPROCESSED_RECIPES = pickle.load(f)
 
-# Check if precomputed frequency files exist; if not, generate and save them
-if not os.path.exists(WORD_FREQ_FILE):
-    print("Building recipe-specific corpus...")
-    corpus_words = []
-    for recipe in PREPROCESSED_RECIPES.values():
-        name = recipe.get('Name', '').lower()
-        keywords = ' '.join(recipe.get('Keywords', [])) if recipe.get('Keywords') else ''
-        corpus_words.extend(word_tokenize(name + ' ' + keywords))
-    word_freq = Counter(corpus_words)
-    with open(WORD_FREQ_FILE, 'wb') as f:
-        pickle.dump(word_freq, f)
-else:
-    print("Loading precomputed recipe word frequencies...")
-    with open(WORD_FREQ_FILE, 'rb') as f:
-        word_freq = pickle.load(f)
+# Load precomputed frequency files
+print("Loading precomputed recipe word frequencies...")
+with open(WORD_FREQ_FILE, 'rb') as f:
+    word_freq = pickle.load(f)
+
+print("Loading precomputed recipe bigram frequencies...")
+with open(BIGRAM_FREQ_FILE, 'rb') as f:
+    bigram_freq = pickle.load(f)  # Loaded but not currently used
 
 total_words = sum(word_freq.values())
 
@@ -113,13 +103,147 @@ def parse_image_urls(image_string):
     return matches if matches else []
 
 
-def clean_image_url(url):
-    if url and isinstance(url, str):
-        return url.strip('"')
-    return url
+# Spell Correction Functions
+def generate_candidates(misspelled_word, max_distance=2):
+    candidates = []
+    misspelled_word = misspelled_word.lower()
+    for word in word_freq.keys():
+        dist = levenshtein_distance(misspelled_word, word)
+        if dist <= max_distance:
+            candidates.append((word, dist))
+    return candidates
 
 
-# Folder Management Endpoints
+def calculate_p_w(word):
+    # Probability of word in corpus, with a small default for unseen words
+    return word_freq.get(word, 1) / total_words
+
+
+def calculate_p_x_given_w(misspelled, candidate, edit_dist):
+    # Probability of misspelling given the candidate word
+    if misspelled == candidate:  # Exact match
+        return 1.0
+    elif edit_dist == 1:
+        return 0.8
+    elif edit_dist == 2:
+        return 0.2
+    return 0.0
+
+
+def correct_spelling(query):
+    query = query.lower()
+    # Check if query is already a valid word in the corpus
+    if query in word_freq:
+        return query, []  # No correction needed, no suggestions
+
+    candidates = generate_candidates(query, max_distance=2)
+    if not candidates:
+        return query, []  # No candidates found, return original query
+
+    # Score candidates
+    candidate_scores = []
+    for cand, dist in candidates:
+        p_w = calculate_p_w(cand)
+        p_x_given_w = calculate_p_x_given_w(query, cand, dist)
+        score = p_x_given_w * p_w
+        candidate_scores.append((cand, score, dist))
+
+    # Sort by score (highest first), then by edit distance (lowest first)
+    candidate_scores.sort(key=lambda x: (-x[1], x[2]))
+    top_candidates = [cand[0] for cand in candidate_scores[:5]]
+    corrected_query = top_candidates[0] if top_candidates else query
+    suggestions = top_candidates if corrected_query != query else []
+
+    return corrected_query, suggestions
+
+
+def search_recipes(query, recipes_list):
+    filtered_recipes = []
+    for recipe in recipes_list:
+        name = recipe.get('Name', '').lower()
+        desc = recipe.get('Description', '').lower()
+        keywords = ' '.join(recipe.get('Keywords', [])) if recipe.get('Keywords') else ''
+        if query in name or query in desc or query in keywords:
+            filtered_recipes.append(recipe)
+    return filtered_recipes
+
+
+@app.route('/recipes', methods=['GET'])
+def get_recipes():
+    limit = request.args.get('limit', default=20, type=int)  # Default to 20 items per page
+    page = request.args.get('page', default=1, type=int)  # Default to page 1
+    search_query = request.args.get('search', default='', type=str).strip().lower()
+    recipes_list = list(PREPROCESSED_RECIPES.values())
+
+    start = (page - 1) * limit
+    end = start + limit
+
+    if search_query:
+        # First, try the original query
+        filtered_recipes = search_recipes(search_query, recipes_list)
+        original_query = search_query
+        corrected_query = search_query
+        suggestions = []
+
+        # If no results or query isn't in corpus, attempt correction
+        if not filtered_recipes or search_query not in word_freq:
+            corrected_query, suggestions = correct_spelling(search_query)
+            if corrected_query != search_query:
+                filtered_recipes = search_recipes(corrected_query, recipes_list)
+
+        # Apply pagination to filtered results
+        total_results = len(filtered_recipes)
+        paginated_recipes = filtered_recipes[start:end]
+        total_pages = (total_results + limit - 1) // limit  # Ceiling division
+
+        response = {
+            'recipes': [
+                {**recipe, 'image_url': clean_image_url(recipe.get('image_url', ''))}
+                for recipe in paginated_recipes
+            ],
+            'original_query': original_query,
+            'corrected_query': corrected_query,
+            'suggestions': suggestions,
+            'total_results': total_results,
+            'total_pages': total_pages,
+            'current_page': page
+        }
+    else:
+        # No search query, paginate all recipes
+        total_results = len(recipes_list)
+        paginated_recipes = recipes_list[start:end]
+        total_pages = (total_results + limit - 1) // limit
+
+        response = {
+            'recipes': [
+                {**recipe, 'image_url': clean_image_url(recipe.get('image_url', ''))}
+                for recipe in paginated_recipes
+            ],
+            'original_query': '',
+            'corrected_query': None,
+            'suggestions': [],
+            'total_results': total_results,
+            'total_pages': total_pages,
+            'current_page': page
+        }
+
+    print(f"Returning {len(response['recipes'])} recipes from /recipes, page {page} of {response['total_pages']}")
+    return jsonify(response)
+
+
+@app.route('/recipes/<int:recipe_id>', methods=['GET'])
+def get_recipe(recipe_id):
+    print(f"Request received for /recipes/{recipe_id}")
+    recipe = PREPROCESSED_RECIPES.get(recipe_id)
+    if not recipe:
+        print(f"No recipe found for ID {recipe_id}")
+        return jsonify({"message": "Recipe not found"}), 404
+    recipe = {**recipe, 'image_url': clean_image_url(recipe.get('image_url', ''))}
+    print(f"Returning recipe: {recipe['Name']}")
+    return jsonify(recipe)
+
+
+# Folder and Bookmark Endpoints (unchanged for brevity)
 @app.route('/folders', methods=['POST'])
 def create_folder():
     data = request.get_json()
@@ -186,7 +310,6 @@ def delete_folder(folder_id):
         conn.close()
 
 
-# Bookmark Endpoints
 @app.route('/bookmarks', methods=['POST'])
 def add_bookmark():
     data = request.get_json()
@@ -328,128 +451,5 @@ def delete_bookmark(bookmark_id):
         conn.close()
 
 
-# Spell Correction Functions
-def generate_candidates(misspelled_word, max_distance=2):
-    candidates = []
-    misspelled_word = misspelled_word.lower()
-    for word in word_freq.keys():
-        dist = levenshtein_distance(misspelled_word, word)
-        if dist <= max_distance:
-            candidates.append((word, dist))
-    return candidates
-
-
-def calculate_p_w(word):
-    return word_freq.get(word, 1) / total_words
-
-
-def calculate_p_x_given_w(misspelled, candidate, edit_dist):
-    if edit_dist == 1:
-        return 0.8
-    elif edit_dist == 2:
-        return 0.2
-    return 1.0 if misspelled == candidate else 0.0
-
-
-def search_recipes(query, recipes_list):
-    filtered_recipes = []
-    for recipe in recipes_list:
-        name = recipe.get('Name', '').lower()
-        desc = recipe.get('Description', '').lower()
-        keywords = ' '.join(recipe.get('Keywords', [])) if recipe.get('Keywords') else ''
-        if query in name or query in desc or query in keywords:
-            filtered_recipes.append(recipe)
-    return filtered_recipes
-
-
-@app.route('/recipes', methods=['GET'])
-def get_recipes():
-    limit = request.args.get('limit', default=20, type=int)  # Default to 20 items per page
-    page = request.args.get('page', default=1, type=int)  # Default to page 1
-    search_query = request.args.get('search', default='', type=str).strip().lower()
-    recipes_list = list(PREPROCESSED_RECIPES.values())
-
-    start = (page - 1) * limit
-    end = start + limit
-
-    if search_query:
-        # Always search with the original query first
-        filtered_recipes = search_recipes(search_query, recipes_list)
-        corrected_query = search_query
-        suggestions = []
-
-        # Generate candidates for correction
-        candidates = generate_candidates(search_query, max_distance=2)
-
-        if candidates:
-            candidate_scores = []
-            for cand, dist in candidates:
-                p_w = calculate_p_w(cand)
-                p_x_given_w = calculate_p_x_given_w(search_query, cand, dist)
-                score = p_x_given_w * p_w
-                candidate_scores.append((cand, score, dist))
-
-            candidate_scores.sort(key=lambda x: x[1], reverse=True)
-            top_candidates = [cand[0] for cand in candidate_scores[:5]]
-            potential_corrected_query = top_candidates[0] if candidate_scores else search_query
-
-            corrected_results = search_recipes(potential_corrected_query, recipes_list)
-            if corrected_results:
-                filtered_recipes = corrected_results
-                corrected_query = potential_corrected_query
-                suggestions = top_candidates if corrected_query != search_query else []
-
-        # Apply pagination to filtered results
-        total_results = len(filtered_recipes)
-        paginated_recipes = filtered_recipes[start:end]
-        total_pages = (total_results + limit - 1) // limit  # Ceiling division
-
-        response = {
-            'recipes': [
-                {**recipe, 'image_url': clean_image_url(recipe.get('image_url', ''))}
-                for recipe in paginated_recipes
-            ],
-            'original_query': search_query,
-            'corrected_query': corrected_query,
-            'suggestions': suggestions,
-            'total_results': total_results,
-            'total_pages': total_pages,
-            'current_page': page
-        }
-    else:
-        # No search query, paginate all recipes
-        total_results = len(recipes_list)
-        paginated_recipes = recipes_list[start:end]
-        total_pages = (total_results + limit - 1) // limit
-
-        response = {
-            'recipes': [
-                {**recipe, 'image_url': clean_image_url(recipe.get('image_url', ''))}
-                for recipe in paginated_recipes
-            ],
-            'original_query': '',
-            'corrected_query': None,
-            'suggestions': [],
-            'total_results': total_results,
-            'total_pages': total_pages,
-            'current_page': page
-        }
-
-    print(f"Returning {len(response['recipes'])} recipes from /recipes, page {page} of {response['total_pages']}")
-    return jsonify(response)
-
-
-@app.route('/recipes/<int:recipe_id>', methods=['GET'])
-def get_recipe(recipe_id):
-    print(f"Request received for /recipes/{recipe_id}")
-    recipe = PREPROCESSED_RECIPES.get(recipe_id)
-    if not recipe:
-        print(f"No recipe found for ID {recipe_id}")
-        return jsonify({"message": "Recipe not found"}), 404
-    recipe = {**recipe, 'image_url': clean_image_url(recipe.get('image_url', ''))}
-    print(f"Returning recipe: {recipe['Name']}")
-    return jsonify(recipe)
-
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run(debug=True, port=5000, threaded=False)
