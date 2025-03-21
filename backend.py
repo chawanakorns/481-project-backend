@@ -160,15 +160,18 @@ def correct_spelling(query):
 
 def search_recipes(query, recipes_list):
     filtered_recipes = []
+    query = query.lower()  # Ensure case-insensitive search
     for recipe in recipes_list:
         name = recipe.get('Name', '').lower()
         desc = recipe.get('Description', '').lower()
-        keywords = ' '.join(recipe.get('Keywords', [])) if recipe.get('Keywords') else ''
+        # Join keywords into a single string for searching
+        keywords = ' '.join(recipe.get('Keywords', [])).lower() if recipe.get('Keywords') else ''
+        # Check if query matches name, description, or keywords
         if query in name or query in desc or query in keywords:
             filtered_recipes.append(recipe)
     return filtered_recipes
 
-
+# Existing /recipes endpoint (unchanged, just showing context)
 @app.route('/recipes', methods=['GET'])
 def get_recipes():
     limit = request.args.get('limit', default=20, type=int)  # Default to 20 items per page
