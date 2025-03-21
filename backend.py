@@ -9,9 +9,9 @@ import re
 app = Flask(__name__)
 CORS(app)
 
-BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-USERS_DB = os.path.join(BASE_DIR, 'database', 'users.db')
-FOOD_DB = os.path.join(BASE_DIR, 'database', 'food.db')
+BASE_DIR = os.path.abspath("../481-project-database")
+USERS_DB = os.path.join(BASE_DIR, 'users.db')
+FOOD_DB = os.path.join(BASE_DIR, 'food.db')
 
 
 def get_user_db_connection():
