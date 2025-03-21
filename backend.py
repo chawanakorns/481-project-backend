@@ -306,7 +306,7 @@ def delete_bookmark(bookmark_id):
 
 @app.route('/recipes', methods=['GET'])
 def get_recipes():
-    limit = request.args.get('limit', default=12, type=int)
+    limit = request.args.get('limit', default=2000, type=int)
     conn = get_food_db_connection()
     cursor = conn.cursor()
     try:
