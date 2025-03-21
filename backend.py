@@ -13,20 +13,16 @@ BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 USERS_DB = os.path.join(BASE_DIR, 'database', 'users.db')
 FOOD_DB = os.path.join(BASE_DIR, 'database', 'food.db')
 
-
 def get_user_db_connection():
     conn = sqlite3.connect(USERS_DB)
     conn.row_factory = sqlite3.Row
     return conn
-
 
 def get_food_db_connection():
     conn = sqlite3.connect(FOOD_DB)
     conn.row_factory = sqlite3.Row
     return conn
 
-
-# User Model
 class User:
     @staticmethod
     def create_user(username, password):
@@ -46,7 +42,6 @@ class User:
         conn.close()
         return user
 
-
 @app.route('/register', methods=['POST'])
 def register():
     data = request.get_json()
@@ -58,7 +53,6 @@ def register():
     User.create_user(username, password)
     return jsonify({"message": "User registered successfully"}), 201
 
-
 @app.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
@@ -69,18 +63,14 @@ def login():
         return jsonify({"message": "Invalid credentials"}), 401
     return jsonify({"message": "Login successful"}), 200
 
-
 def parse_image_urls(image_string):
-    # This regex will match URLs inside quotes
     pattern = r'"(https?://[^"]+)"'
     matches = re.findall(pattern, image_string)
     return matches if matches else []
 
-
 @app.route('/recipes', methods=['GET'])
 def get_recipes():
     limit = request.args.get('limit', default=12, type=int)
-
     conn = get_food_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM recipes LIMIT ?", (limit,))
@@ -93,22 +83,42 @@ def get_recipes():
     recipes_list = []
     for row in recipes:
         recipe = dict(row)
-        # Parse image URLs if they're in the format you showed
         if recipe['Images'] and recipe['Images'].startswith('c('):
             image_urls = parse_image_urls(recipe['Images'])
-            # Use the first image URL if available, otherwise use an empty string
             recipe['image_url'] = image_urls[0] if image_urls else ''
-            # Also include all image URLs in case you want to display multiple images
             recipe['all_image_urls'] = image_urls
         else:
-            # If it's just a single URL
             recipe['image_url'] = recipe['Images']
             recipe['all_image_urls'] = [recipe['Images']] if recipe['Images'] else []
-
         recipes_list.append(recipe)
 
+    print(f"Returning {len(recipes_list)} recipes from /recipes")  # Debug log
     return jsonify(recipes_list)
 
+@app.route('/recipes/<int:recipe_id>', methods=['GET'])
+def get_recipe(recipe_id):
+    print(f"Request received for /recipes/{recipe_id}")  # Debug log
+    conn = get_food_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM recipes WHERE RecipeId = ?", (recipe_id,))
+    recipe = cursor.fetchone()
+    conn.close()
+
+    if not recipe:
+        print(f"No recipe found for ID {recipe_id}")  # Debug log
+        return jsonify({"message": "Recipe not found"}), 404
+
+    recipe_dict = dict(recipe)
+    if recipe_dict['Images'] and recipe_dict['Images'].startswith('c('):
+        image_urls = parse_image_urls(recipe_dict['Images'])
+        recipe_dict['image_url'] = image_urls[0] if image_urls else ''
+        recipe_dict['all_image_urls'] = image_urls
+    else:
+        recipe_dict['image_url'] = recipe_dict['Images']
+        recipe_dict['all_image_urls'] = [recipe_dict['Images']] if recipe_dict['Images'] else []
+
+    print(f"Returning recipe: {recipe_dict['Name']}")  # Debug log
+    return jsonify(recipe_dict)
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
