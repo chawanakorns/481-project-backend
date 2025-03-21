@@ -72,11 +72,13 @@ def parse_image_urls(image_string):
 @app.route('/folders', methods=['POST'])
 def create_folder():
     data = request.get_json()
-    user_id = data['user_id']
-    name = data['name']
+    user_id = data.get('user_id')
+    name = data.get('name')
+    if not user_id or not name or not name.strip():
+        return jsonify({"message": "User ID and folder name are required"}), 400
     conn = get_food_db_connection()
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO folders (UserId, Name) VALUES (?, ?)", (user_id, name))
+    cursor.execute("INSERT INTO folders (UserId, Name) VALUES (?, ?)", (user_id, name.strip()))
     conn.commit()
     folder_id = cursor.lastrowid
     conn.close()
@@ -95,10 +97,15 @@ def get_folders():
 @app.route('/folders/<int:folder_id>', methods=['PUT'])
 def update_folder(folder_id):
     data = request.get_json()
-    name = data['name']
+    name = data.get('name')
+    if not name or not name.strip():
+        return jsonify({"message": "Folder name is required"}), 400
     conn = get_food_db_connection()
     cursor = conn.cursor()
-    cursor.execute("UPDATE folders SET Name = ? WHERE FolderId = ?", (name, folder_id))
+    cursor.execute("UPDATE folders SET Name = ? WHERE FolderId = ?", (name.strip(), folder_id))
+    if cursor.rowcount == 0:
+        conn.close()
+        return jsonify({"message": "Folder not found"}), 404
     conn.commit()
     conn.close()
     return jsonify({"message": "Folder updated"}), 200
@@ -107,21 +114,31 @@ def update_folder(folder_id):
 def delete_folder(folder_id):
     conn = get_food_db_connection()
     cursor = conn.cursor()
+    cursor.execute("DELETE FROM bookmarks WHERE FolderId = ?", (folder_id,))  # Cascade delete bookmarks
     cursor.execute("DELETE FROM folders WHERE FolderId = ?", (folder_id,))
+    if cursor.rowcount == 0:
+        conn.close()
+        return jsonify({"message": "Folder not found"}), 404
     conn.commit()
     conn.close()
-    return jsonify({"message": "Folder deleted"}), 200
+    return jsonify({"message": "Folder and its bookmarks deleted"}), 200
 
 # Bookmark Endpoints
 @app.route('/bookmarks', methods=['POST'])
 def add_bookmark():
     data = request.get_json()
-    user_id = data['user_id']
-    folder_id = data['folder_id']
-    recipe_id = data['recipe_id']
-    rating = data['rating']
+    user_id = data.get('user_id')
+    folder_id = data.get('folder_id')
+    recipe_id = data.get('recipe_id')
+    rating = data.get('rating')
+    if not all([user_id, folder_id, recipe_id, rating]) or not (1 <= rating <= 5):
+        return jsonify({"message": "All fields are required, and rating must be 1-5"}), 400
     conn = get_food_db_connection()
     cursor = conn.cursor()
+    cursor.execute("SELECT * FROM folders WHERE FolderId = ? AND UserId = ?", (folder_id, user_id))
+    if not cursor.fetchone():
+        conn.close()
+        return jsonify({"message": "Folder not found or not owned by user"}), 404
     cursor.execute("INSERT INTO bookmarks (UserId, FolderId, RecipeId, Rating) VALUES (?, ?, ?, ?)",
                    (user_id, folder_id, recipe_id, rating))
     conn.commit()
@@ -133,14 +150,26 @@ def get_bookmarks(folder_id):
     conn = get_food_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT b.*, r.Name, r.image_url
+        SELECT b.*, r.Name, r.Images
         FROM bookmarks b
         JOIN recipes r ON b.RecipeId = r.RecipeId
         WHERE b.FolderId = ?
     """, (folder_id,))
     bookmarks = cursor.fetchall()
     conn.close()
-    return jsonify([dict(bookmark) for bookmark in bookmarks])
+
+    # Process bookmarks to add image_url
+    bookmarks_list = []
+    for bookmark in bookmarks:
+        bookmark_dict = dict(bookmark)
+        if bookmark_dict['Images'] and bookmark_dict['Images'].startswith('c('):
+            image_urls = parse_image_urls(bookmark_dict['Images'])
+            bookmark_dict['image_url'] = image_urls[0] if image_urls else ''
+        else:
+            bookmark_dict['image_url'] = bookmark_dict['Images'] if bookmark_dict['Images'] else ''
+        bookmarks_list.append(bookmark_dict)
+
+    return jsonify(bookmarks_list)
 
 @app.route('/recipes', methods=['GET'])
 def get_recipes():
