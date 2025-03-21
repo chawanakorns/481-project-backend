@@ -79,9 +79,11 @@ def parse_image_urls(image_string):
 
 @app.route('/recipes', methods=['GET'])
 def get_recipes():
+    limit = request.args.get('limit', default=12, type=int)
+
     conn = get_food_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM recipes LIMIT 10")
+    cursor.execute("SELECT * FROM recipes LIMIT ?", (limit,))
     recipes = cursor.fetchall()
     conn.close()
 
