@@ -6,11 +6,10 @@ import bcrypt  # Import the bcrypt module
 import os
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for frontend communication
+CORS(app)
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 
-# Paths to your database files
 USERS_DB = os.path.join(BASE_DIR, 'database', 'users.db')  # Path to your users.db file
 FOOD_DB = os.path.join(BASE_DIR, 'database', 'food.db')  # Path to your food.db file
 
@@ -18,7 +17,7 @@ FOOD_DB = os.path.join(BASE_DIR, 'database', 'food.db')  # Path to your food.db 
 # Create a function to get a database connection for users database
 def get_user_db_connection():
     conn = sqlite3.connect(USERS_DB)
-    conn.row_factory = sqlite3.Row  # This allows us to access columns by name (like a dictionary)
+    conn.row_factory = sqlite3.Row
     return conn
 
 
@@ -92,7 +91,6 @@ def get_recipes():
     conn = get_food_db_connection()
     cursor = conn.cursor()
 
-    # Fetch all recipes from the recipes table
     cursor.execute("SELECT * FROM recipes LIMIT 10")
     recipes = cursor.fetchall()
     conn.close()
@@ -100,10 +98,9 @@ def get_recipes():
     if not recipes:
         return jsonify({"message": "No recipes found"}), 404
 
-    # Convert recipes to a list of dictionaries
     recipes_list = [dict(row) for row in recipes]
     return jsonify(recipes_list)
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)  # Use 5000 for backend, Vue runs on 5173
+    app.run(debug=True, port=5000)
