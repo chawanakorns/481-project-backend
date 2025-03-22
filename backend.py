@@ -1,3 +1,4 @@
+# backend.py
 from flask import Flask, redirect
 from flask_cors import CORS
 from auth.auth import auth_bp

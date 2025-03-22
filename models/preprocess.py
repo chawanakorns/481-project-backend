@@ -1,3 +1,4 @@
+import os
 import sqlite3
 import re
 import pickle
@@ -9,10 +10,12 @@ from collections import Counter
 nltk.download('punkt', quiet=True)
 
 # Database connection
-FOOD_DB = "../481-project-database/food.db"  # Adjust path as needed
-OUTPUT_PICKLE = "../481-project-database/preprocessed_recipes.pkl"  # Output file for recipes
-WORD_FREQ_FILE = "../481-project-database/word_freq.pkl"  # Output file for unigram frequencies
-BIGRAM_FREQ_FILE = "../481-project-database/bigram_freq.pkl"  # Output file for bigram frequencies
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "481-project-database"))
+
+FOOD_DB = os.path.join(BASE_DIR, 'food.db')
+OUTPUT_PICKLE = os.path.join(BASE_DIR, 'preprocessed_recipes.pkl')
+WORD_FREQ_FILE = os.path.join(BASE_DIR, 'word_freq.pkl')
+BIGRAM_FREQ_FILE = os.path.join(BASE_DIR, 'bigram_freq.pkl')
 
 
 def get_db_connection():

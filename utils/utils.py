@@ -6,6 +6,7 @@ from functools import wraps
 from flask import request, jsonify
 import jwt
 from Levenshtein import distance as levenshtein_distance
+import lightgbm as lgb
 
 # Define the base directory relative to utils.py
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "481-project-database"))
@@ -15,6 +16,7 @@ FOOD_DB = os.path.join(BASE_DIR, 'food.db')
 PREPROCESSED_RECIPES_FILE = os.path.join(BASE_DIR, 'preprocessed_recipes.pkl')
 WORD_FREQ_FILE = os.path.join(BASE_DIR, 'word_freq.pkl')
 BIGRAM_FREQ_FILE = os.path.join(BASE_DIR, 'bigram_freq.pkl')
+RANKING_MODEL_PATH = os.path.join(BASE_DIR, 'ranking_model.txt')
 
 SECRET_KEY = ""
 
@@ -39,6 +41,17 @@ try:
 except FileNotFoundError as e:
     print(f"Error: Could not find bigram_freq.pkl at {BIGRAM_FREQ_FILE}. Please ensure the file exists.")
     raise e
+
+# Load the LightGBM ranking model with fallback
+ranking_model = None
+try:
+    if os.path.exists(RANKING_MODEL_PATH):
+        ranking_model = lgb.Booster(model_file=RANKING_MODEL_PATH)
+        print(f"Successfully loaded ranking model from {RANKING_MODEL_PATH}")
+    else:
+        print(f"Warning: Ranking model file not found at {RANKING_MODEL_PATH}. Run train_ranking_model.py to generate the model.")
+except Exception as e:
+    print(f"Error: Failed to load ranking model from {RANKING_MODEL_PATH}: {str(e)}")
 
 total_words = sum(word_freq.values())
 total_bigrams = sum(bigram_freq.values())
@@ -102,7 +115,6 @@ def generate_candidates(misspelled_word, max_distance=2):
 def generate_bigram_candidates(misspelled_bigram, max_distance=3):
     candidates = []
     misspelled_bigram = misspelled_bigram.lower()
-    # Convert bigram tuple to string for comparison
     for bigram in bigram_freq.keys():
         bigram_str = ' '.join(bigram)
         dist = levenshtein_distance(misspelled_bigram, bigram_str)
