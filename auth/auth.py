@@ -1,8 +1,11 @@
 from flask import Blueprint, request, jsonify
 import bcrypt
-from utils.utils import get_user_db_connection
+import jwt
+import datetime
+from utils.utils import get_user_db_connection, SECRET_KEY
 
 auth_bp = Blueprint('auth', __name__)
+
 
 class User:
     @staticmethod
@@ -27,6 +30,7 @@ class User:
         finally:
             conn.close()
 
+
 @auth_bp.route('/register', methods=['POST'])
 def register():
     data = request.get_json()
@@ -38,6 +42,7 @@ def register():
     User.create_user(username, password)
     return jsonify({"message": "User registered successfully"}), 201
 
+
 @auth_bp.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
@@ -46,4 +51,16 @@ def login():
     user = User.get_user_by_username(username)
     if not user or not bcrypt.checkpw(password.encode('utf-8'), user['hashed_password']):
         return jsonify({"message": "Invalid credentials"}), 401
-    return jsonify({"message": "Login successful", "user_id": user['id']}), 200
+
+    token = jwt.encode({
+        'user_id': user['id'],
+        'username': username,
+        'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=24)
+    }, SECRET_KEY, algorithm="HS256")
+
+    return jsonify({"message": "Login successful", "user_id": user['id'], "token": token}), 200
+
+
+@auth_bp.route('/logout', methods=['POST'])
+def logout():
+    return jsonify({"message": "Logout successful"}), 200

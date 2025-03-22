@@ -1,24 +1,44 @@
 import os
 import pickle
 import sqlite3
+from functools import wraps
+from flask import request, jsonify
+import jwt
 from Levenshtein import distance as levenshtein_distance
 
-BASE_DIR = os.path.abspath("../481-project-database")
+# Define the base directory relative to utils.py
+# Go up two levels from utils/ to INFORMATION RETRIEVAL, then into 481-project-database
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "481-project-database"))
+
 USERS_DB = os.path.join(BASE_DIR, 'users.db')
 FOOD_DB = os.path.join(BASE_DIR, 'food.db')
-PREPROCESSED_RECIPES_FILE = "../481-project-database/preprocessed_recipes.pkl"
-WORD_FREQ_FILE = "../481-project-database/word_freq.pkl"
-BIGRAM_FREQ_FILE = "../481-project-database/bigram_freq.pkl"
+PREPROCESSED_RECIPES_FILE = os.path.join(BASE_DIR, 'preprocessed_recipes.pkl')
+WORD_FREQ_FILE = os.path.join(BASE_DIR, 'word_freq.pkl')
+BIGRAM_FREQ_FILE = os.path.join(BASE_DIR, 'bigram_freq.pkl')
 
-# Load preprocessed data
-with open(PREPROCESSED_RECIPES_FILE, "rb") as f:
-    PREPROCESSED_RECIPES = pickle.load(f)
+SECRET_KEY = ""
 
-with open(WORD_FREQ_FILE, 'rb') as f:
-    word_freq = pickle.load(f)
+# Load preprocessed data with error handling
+try:
+    with open(PREPROCESSED_RECIPES_FILE, "rb") as f:
+        PREPROCESSED_RECIPES = pickle.load(f)
+except FileNotFoundError as e:
+    print(f"Error: Could not find preprocessed_recipes.pkl at {PREPROCESSED_RECIPES_FILE}. Please ensure the file exists.")
+    raise e
 
-with open(BIGRAM_FREQ_FILE, 'rb') as f:
-    bigram_freq = pickle.load(f)
+try:
+    with open(WORD_FREQ_FILE, 'rb') as f:
+        word_freq = pickle.load(f)
+except FileNotFoundError as e:
+    print(f"Error: Could not find word_freq.pkl at {WORD_FREQ_FILE}. Please ensure the file exists.")
+    raise e
+
+try:
+    with open(BIGRAM_FREQ_FILE, 'rb') as f:
+        bigram_freq = pickle.load(f)
+except FileNotFoundError as e:
+    print(f"Error: Could not find bigram_freq.pkl at {BIGRAM_FREQ_FILE}. Please ensure the file exists.")
+    raise e
 
 total_words = sum(word_freq.values())
 total_bigrams = sum(bigram_freq.values())
@@ -37,6 +57,23 @@ def clean_image_url(url):
     if url and isinstance(url, str):
         return url.strip('"')
     return url
+
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = request.headers.get('Authorization')
+        if not token:
+            return jsonify({"message": "Token is missing"}), 401
+        try:
+            if token.startswith("Bearer "):
+                token = token.split(" ")[1]
+            jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        except jwt.ExpiredSignatureError:
+            return jsonify({"message": "Token has expired"}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({"message": "Invalid token"}), 401
+        return f(*args, **kwargs)
+    return decorated
 
 def generate_candidates(misspelled_word, max_distance=2):
     candidates = []
