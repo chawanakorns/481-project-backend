@@ -39,20 +39,20 @@ def parse_array_string(array_string):
                 in_quotes = not in_quotes
             elif char == ',' and not in_quotes:
                 if current_item.strip():
-                    items.append(current_item.strip().strip('"'))
+                    items.append(current_item.strip().strip('"'))  # No .lower()
                 current_item = ""
             else:
                 current_item += char
 
         # Append the last item
         if current_item.strip():
-            items.append(current_item.strip().strip('"'))
+            items.append(current_item.strip().strip('"'))  # No .lower()
 
         # Filter out unwanted items like empty strings or standalone numbers
         return [item for item in items if item and not re.match(r'^\d+$', item)]
 
     # For non-c() strings, treat as a single item and clean it
-    cleaned_item = array_string.strip().strip('"').strip("'")
+    cleaned_item = array_string.strip().strip('"').strip("'")  # No .lower()
     if cleaned_item and not re.match(r'^\d+$', cleaned_item):  # Exclude standalone numbers
         return [cleaned_item]
     return []
@@ -91,14 +91,14 @@ def preprocess_recipe(row):
         if col in preprocessed and preprocessed[col]:
             preprocessed[col] = parse_array_string(preprocessed[col])
 
-    # Text columns to clean (strip quotes and handle malformed data)
+    # Text columns to clean (strip quotes, preserve original case)
     text_columns = [
         "Name", "AuthorName", "Description", "RecipeCategory", "RecipeServings",
         "RecipeYield", "DatePublished"
     ]
     for col in text_columns:
         if preprocessed[col] and isinstance(preprocessed[col], str):
-            # Strip surrounding quotes and clean up
+            # Strip surrounding quotes but keep original case
             preprocessed[col] = preprocessed[col].strip('"').strip("'").strip()
 
     # Convert numeric columns to proper types
@@ -142,7 +142,7 @@ def generate_frequencies(preprocessed_recipes):
     corpus_bigrams = []
 
     for recipe in preprocessed_recipes.values():
-        name = recipe.get('Name', '').lower()
+        name = recipe.get('Name', '').lower()  # Keep .lower() here for frequency analysis
         keywords = ' '.join(recipe.get('Keywords', [])) if recipe.get('Keywords') else ''
         # Tokenize the combined name and keywords
         tokens = word_tokenize(name + ' ' + keywords)
@@ -169,7 +169,7 @@ def preprocess_recipes():
         recipes = cursor.fetchall()
         preprocessed_recipes = {row["RecipeId"]: preprocess_recipe(row) for row in recipes}
 
-        # Debug: Check for quotes in Name and Description
+        # Debug: Check for quotes (no uppercase check since we preserve case)
         for recipe_id, recipe in preprocessed_recipes.items():
             for field in ["Name", "Description"]:
                 if recipe[field] and ('"' in str(recipe[field]) or "'" in str(recipe[field])):
