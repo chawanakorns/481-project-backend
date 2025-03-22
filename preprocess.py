@@ -25,11 +25,37 @@ def get_db_connection():
 def parse_array_string(array_string):
     if not array_string or not isinstance(array_string, str):
         return []
+
+    # Handle the c("item1", "item2", ...) format
     if array_string.startswith('c(') and array_string.endswith(')'):
-        content = array_string[2:-1]
-        items = re.findall(r'"([^"]*)"(?:,|$)', content)
-        return [item.strip() for item in items if item.strip()]
-    return [array_string]  # Treat non-c() strings as a single-item list
+        content = array_string[2:-1]  # Remove c( and )
+        # Split by commas, but only outside of quotes, and strip quotes
+        items = []
+        current_item = ""
+        in_quotes = False
+
+        for char in content:
+            if char == '"':
+                in_quotes = not in_quotes
+            elif char == ',' and not in_quotes:
+                if current_item.strip():
+                    items.append(current_item.strip().strip('"'))
+                current_item = ""
+            else:
+                current_item += char
+
+        # Append the last item
+        if current_item.strip():
+            items.append(current_item.strip().strip('"'))
+
+        # Filter out unwanted items like empty strings or standalone numbers
+        return [item for item in items if item and not re.match(r'^\d+$', item)]
+
+    # For non-c() strings, treat as a single item and clean it
+    cleaned_item = array_string.strip().strip('"').strip("'")
+    if cleaned_item and not re.match(r'^\d+$', cleaned_item):  # Exclude standalone numbers
+        return [cleaned_item]
+    return []
 
 
 # Function to parse ISO 8601 duration (e.g., "PT24H45M") into minutes
@@ -64,6 +90,16 @@ def preprocess_recipe(row):
     for col in array_columns:
         if col in preprocessed and preprocessed[col]:
             preprocessed[col] = parse_array_string(preprocessed[col])
+
+    # Text columns to clean (strip quotes and handle malformed data)
+    text_columns = [
+        "Name", "AuthorName", "Description", "RecipeCategory", "RecipeServings",
+        "RecipeYield", "DatePublished"
+    ]
+    for col in text_columns:
+        if preprocessed[col] and isinstance(preprocessed[col], str):
+            # Strip surrounding quotes and clean up
+            preprocessed[col] = preprocessed[col].strip('"').strip("'").strip()
 
     # Convert numeric columns to proper types
     numeric_columns = [
@@ -132,6 +168,12 @@ def preprocess_recipes():
         cursor.execute("SELECT * FROM recipes")
         recipes = cursor.fetchall()
         preprocessed_recipes = {row["RecipeId"]: preprocess_recipe(row) for row in recipes}
+
+        # Debug: Check for quotes in Name and Description
+        for recipe_id, recipe in preprocessed_recipes.items():
+            for field in ["Name", "Description"]:
+                if recipe[field] and ('"' in str(recipe[field]) or "'" in str(recipe[field])):
+                    print(f"Recipe {recipe_id} {field} still has quotes: {recipe[field]}")
 
         # Generate unigram and bigram frequencies
         word_freq, bigram_freq = generate_frequencies(preprocessed_recipes)

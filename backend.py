@@ -160,12 +160,16 @@ def correct_spelling(query):
 
 def search_recipes(query, recipes_list):
     filtered_recipes = []
-    query = query.lower()  # Ensure case-insensitive search
+    query = query.lower().strip()  # Ensure case-insensitive and trimmed search
     for recipe in recipes_list:
         name = recipe.get('Name', '').lower()
-        desc = recipe.get('Description', '').lower()
-        # Join keywords into a single string for searching
-        keywords = ' '.join(recipe.get('Keywords', [])).lower() if recipe.get('Keywords') else ''
+        desc = recipe.get('Description', '').lower() if recipe.get('Description') else ''
+        # Clean and join keywords, removing quotes and numeric-only entries
+        keywords_list = [
+            kw.strip('"').lower() for kw in recipe.get('Keywords', [])
+            if kw and not re.match(r'^\d+$', kw.strip('"'))
+        ]
+        keywords = ' '.join(keywords_list)
         # Check if query matches name, description, or keywords
         if query in name or query in desc or query in keywords:
             filtered_recipes.append(recipe)
