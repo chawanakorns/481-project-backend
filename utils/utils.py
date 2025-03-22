@@ -1,3 +1,4 @@
+# utils/utils.py
 import os
 import pickle
 import sqlite3
@@ -7,7 +8,6 @@ import jwt
 from Levenshtein import distance as levenshtein_distance
 
 # Define the base directory relative to utils.py
-# Go up two levels from utils/ to INFORMATION RETRIEVAL, then into 481-project-database
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "481-project-database"))
 
 USERS_DB = os.path.join(BASE_DIR, 'users.db')
@@ -42,6 +42,21 @@ except FileNotFoundError as e:
 
 total_words = sum(word_freq.values())
 total_bigrams = sum(bigram_freq.values())
+
+# Define a phrase map for common recipe phrases
+PHRASE_MAP = {
+    "chicken beads": "chicken breasts",
+    "chiken beads": "chicken breasts",
+    "chiken breasts": "chicken breasts",
+    "chicken brests": "chicken breasts",
+    "oliv oil": "olive oil",
+    "garlic power": "garlic powder",
+    "tamoto": "tomato",
+    "brown suger": "brown sugar",
+    "wheat flower": "wheat flour",
+    "soi sauce": "soy sauce",
+    "backed chicken": "baked chicken",
+}
 
 def get_user_db_connection():
     conn = sqlite3.connect(USERS_DB, timeout=10)
@@ -87,8 +102,10 @@ def generate_candidates(misspelled_word, max_distance=2):
 def generate_bigram_candidates(misspelled_bigram, max_distance=3):
     candidates = []
     misspelled_bigram = misspelled_bigram.lower()
+    # Convert bigram tuple to string for comparison
     for bigram in bigram_freq.keys():
-        dist = levenshtein_distance(misspelled_bigram, bigram)
+        bigram_str = ' '.join(bigram)
+        dist = levenshtein_distance(misspelled_bigram, bigram_str)
         if dist <= max_distance:
             candidates.append((bigram, dist))
     return candidates
