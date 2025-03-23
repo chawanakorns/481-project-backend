@@ -72,12 +72,14 @@ PHRASE_MAP = {
 }
 
 def get_user_db_connection():
-    conn = sqlite3.connect(USERS_DB, timeout=10)
+    conn = sqlite3.connect(USERS_DB, timeout=30)
+    conn.execute('PRAGMA journal_mode=WAL;')
     conn.row_factory = sqlite3.Row
     return conn
 
 def get_food_db_connection():
-    conn = sqlite3.connect(FOOD_DB, timeout=10)
+    conn = sqlite3.connect(FOOD_DB, timeout=30)
+    conn.execute('PRAGMA journal_mode=WAL;')
     conn.row_factory = sqlite3.Row
     return conn
 
